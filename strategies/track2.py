@@ -38,29 +38,80 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import date, datetime, timedelta
-import sqlite3
-import json
+import os
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-T2_DB = "data/track2.db"
-
 CFG = {
     "starting_capital": 50_000,
-    "capital_per_trade": 10_000,  # Rs10k per position (5 max positions)
+    "capital_per_trade": 10_000,
     "max_positions": 5,
-    "stop_loss_pct": 0.06,  # -6%
-    "profit_target_pct": 0.12,  # +12%
+    "stop_loss_pct": 0.06,
+    "profit_target_pct": 0.12,
     "max_hold_days": 30,
-    "dip_min": 0.10,  # at least 10% below 52w high
-    "dip_max": 0.25,  # not more than 25% below (could be broken)
-    "rsi_max": 45,  # oversold
-    "roe_min": 12,  # %
+    "dip_min": 0.10,
+    "dip_max": 0.25,
+    "rsi_max": 45,
+    "roe_min": 12,
     "debt_equity_max": 1.5,
     "pe_max": 40,
     "min_price": 50,
-    "max_price": 5000,  # wider range for quality large caps
+    "max_price": 5000,
 }
+
+# ─── DB connection (SQLite locally, PostgreSQL on Railway) ────────────────────
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+USE_PG = DATABASE_URL is not None
+
+if USE_PG:
+    import psycopg2
+    import psycopg2.extras
+
+SQLITE_FILE = os.path.join(os.path.dirname(__file__), "data", "track2.db")
+
+
+def _conn():
+    if USE_PG:
+        return psycopg2.connect(DATABASE_URL)
+    else:
+        import sqlite3
+
+        os.makedirs(os.path.dirname(SQLITE_FILE), exist_ok=True)
+        conn = __import__("sqlite3").connect(SQLITE_FILE)
+        conn.row_factory = __import__("sqlite3").Row
+        return conn
+
+
+def _ex(conn, sql, params=()):
+    """Execute SQL — normalises ? vs %s between SQLite and PostgreSQL."""
+    if USE_PG:
+        sql = sql.replace("?", "%s")
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql, params)
+        return cur
+    return conn.execute(sql, params)
+
+
+def _all(cur):
+    rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+def _one(cur):
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def _days_held(rows):
+    today = date.today()
+    for r in rows:
+        try:
+            r["days_held"] = (today - date.fromisoformat(r["buy_date"])).days
+        except:
+            r["days_held"] = 0
+    return rows
+
 
 # Quality large-cap universe — Nifty 100 stocks known for fundamentals
 STOCKS = [
@@ -188,92 +239,141 @@ SECTOR_INDEX = {
 }
 NIFTY = "^NSEI"
 
-# ─── Database ─────────────────────────────────────────────────────────────────
-
-
-def _conn():
-    conn = sqlite3.connect(T2_DB)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ─── Schema ───────────────────────────────────────────────────────────────────
 
 
 def init_db():
     conn = _conn()
-    c = conn.cursor()
-    c.execute(
+    if USE_PG:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS t2_trades (
+                id              SERIAL PRIMARY KEY,
+                symbol          TEXT NOT NULL,
+                quantity        INTEGER NOT NULL,
+                buy_price       REAL NOT NULL,
+                sell_price      REAL,
+                buy_date        TEXT NOT NULL,
+                sell_date       TEXT,
+                status          TEXT DEFAULT 'OPEN',
+                pnl             REAL DEFAULT 0,
+                exit_reason     TEXT,
+                roe             REAL,
+                debt_equity     REAL,
+                pe_ratio        REAL,
+                dip_pct         REAL,
+                rsi_at_entry    REAL
+            )
         """
-        CREATE TABLE IF NOT EXISTS t2_trades (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol          TEXT NOT NULL,
-            quantity        INTEGER NOT NULL,
-            buy_price       REAL NOT NULL,
-            sell_price      REAL,
-            buy_date        TEXT NOT NULL,
-            sell_date       TEXT,
-            status          TEXT DEFAULT 'OPEN',
-            pnl             REAL DEFAULT 0,
-            exit_reason     TEXT,
-            -- fundamentals snapshot at time of entry
-            roe             REAL,
-            debt_equity     REAL,
-            pe_ratio        REAL,
-            dip_pct         REAL,
-            rsi_at_entry    REAL
         )
-    """
-    )
-    c.execute(
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS t2_portfolio_history (
+                id      SERIAL PRIMARY KEY,
+                date    TEXT NOT NULL UNIQUE,
+                value   REAL NOT NULL,
+                cash    REAL NOT NULL,
+                n_open  INTEGER NOT NULL
+            )
         """
-        CREATE TABLE IF NOT EXISTS t2_portfolio_history (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            date    TEXT NOT NULL UNIQUE,
-            value   REAL NOT NULL,
-            cash    REAL NOT NULL,
-            n_open  INTEGER NOT NULL
         )
-    """
-    )
-    c.execute(
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS t2_scan_log (
+                id          SERIAL PRIMARY KEY,
+                scan_date   TEXT NOT NULL,
+                symbol      TEXT NOT NULL,
+                action      TEXT NOT NULL,
+                reason      TEXT,
+                price       REAL,
+                pnl         REAL
+            )
         """
-        CREATE TABLE IF NOT EXISTS t2_scan_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            scan_date   TEXT NOT NULL,
-            symbol      TEXT NOT NULL,
-            action      TEXT NOT NULL,   -- BOUGHT / SOLD / SIGNAL_SKIPPED
-            reason      TEXT,
-            price       REAL,
-            pnl         REAL
         )
-    """
-    )
-    conn.commit()
+        conn.commit()
+        cur.close()
+    else:
+        import sqlite3
+
+        c = conn.cursor()
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS t2_trades (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol          TEXT NOT NULL,
+                quantity        INTEGER NOT NULL,
+                buy_price       REAL NOT NULL,
+                sell_price      REAL,
+                buy_date        TEXT NOT NULL,
+                sell_date       TEXT,
+                status          TEXT DEFAULT 'OPEN',
+                pnl             REAL DEFAULT 0,
+                exit_reason     TEXT,
+                roe             REAL,
+                debt_equity     REAL,
+                pe_ratio        REAL,
+                dip_pct         REAL,
+                rsi_at_entry    REAL
+            )
+        """
+        )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS t2_portfolio_history (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                date    TEXT NOT NULL UNIQUE,
+                value   REAL NOT NULL,
+                cash    REAL NOT NULL,
+                n_open  INTEGER NOT NULL
+            )
+        """
+        )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS t2_scan_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                scan_date   TEXT NOT NULL,
+                symbol      TEXT NOT NULL,
+                action      TEXT NOT NULL,
+                reason      TEXT,
+                price       REAL,
+                pnl         REAL
+            )
+        """
+        )
+        conn.commit()
     conn.close()
 
 
 def get_open_positions():
     conn = _conn()
-    rows = conn.execute(
-        """
-        SELECT *, CAST(julianday('now') - julianday(buy_date) AS INTEGER) as days_held
-        FROM t2_trades WHERE status='OPEN' ORDER BY buy_date DESC
-    """
-    ).fetchall()
+    cur = _ex(
+        conn, "SELECT * FROM t2_trades WHERE status='OPEN' ORDER BY buy_date DESC"
+    )
+    rows = _all(cur)
+    if USE_PG:
+        cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    return _days_held(rows)
 
 
 def get_closed_trades():
     conn = _conn()
-    rows = conn.execute(
-        "SELECT * FROM t2_trades WHERE status='CLOSED' ORDER BY sell_date DESC"
-    ).fetchall()
+    cur = _ex(
+        conn, "SELECT * FROM t2_trades WHERE status='CLOSED' ORDER BY sell_date DESC"
+    )
+    rows = _all(cur)
+    if USE_PG:
+        cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    return rows
 
 
 def get_stats():
     conn = _conn()
-    row = conn.execute(
+    cur = _ex(
+        conn,
         """
         SELECT COUNT(*) as n,
                COALESCE(SUM(pnl),0) as total_pnl,
@@ -282,15 +382,26 @@ def get_stats():
                COALESCE(AVG(CASE WHEN pnl>0 THEN pnl END),0) as avg_win,
                COALESCE(AVG(CASE WHEN pnl<=0 THEN pnl END),0) as avg_loss
         FROM t2_trades WHERE status='CLOSED'
-    """
-    ).fetchone()
+    """,
+    )
+    row = _one(cur)
+    if USE_PG:
+        cur.close()
     conn.close()
-    return dict(row)
+    return row or {
+        "n": 0,
+        "total_pnl": 0,
+        "wins": 0,
+        "losses": 0,
+        "avg_win": 0,
+        "avg_loss": 0,
+    }
 
 
 def _add_trade(symbol, qty, price, roe, de, pe, dip, rsi):
     conn = _conn()
-    conn.execute(
+    _ex(
+        conn,
         """
         INSERT INTO t2_trades
         (symbol, quantity, buy_price, buy_date, status, roe, debt_equity, pe_ratio, dip_pct, rsi_at_entry)
@@ -304,16 +415,17 @@ def _add_trade(symbol, qty, price, roe, de, pe, dip, rsi):
 
 def _close_trade(trade_id, sell_price, reason):
     conn = _conn()
-    trade = conn.execute("SELECT * FROM t2_trades WHERE id=?", (trade_id,)).fetchone()
+    cur = _ex(conn, "SELECT * FROM t2_trades WHERE id=?", (trade_id,))
+    trade = _one(cur)
+    if USE_PG:
+        cur.close()
     if not trade:
         conn.close()
         return 0
     pnl = round((sell_price - trade["buy_price"]) * trade["quantity"], 2)
-    conn.execute(
-        """
-        UPDATE t2_trades SET sell_price=?, sell_date=?, status='CLOSED', pnl=?, exit_reason=?
-        WHERE id=?
-    """,
+    _ex(
+        conn,
+        "UPDATE t2_trades SET sell_price=?, sell_date=?, status='CLOSED', pnl=?, exit_reason=? WHERE id=?",
         (sell_price, date.today().isoformat(), pnl, reason, trade_id),
     )
     conn.commit()
@@ -323,11 +435,9 @@ def _close_trade(trade_id, sell_price, reason):
 
 def _log_scan(symbol, action, reason, price=None, pnl=None):
     conn = _conn()
-    conn.execute(
-        """
-        INSERT INTO t2_scan_log (scan_date, symbol, action, reason, price, pnl)
-        VALUES (?,?,?,?,?,?)
-    """,
+    _ex(
+        conn,
+        "INSERT INTO t2_scan_log (scan_date, symbol, action, reason, price, pnl) VALUES (?,?,?,?,?,?)",
         (date.today().isoformat(), symbol, action, reason, price, pnl),
     )
     conn.commit()
@@ -336,45 +446,66 @@ def _log_scan(symbol, action, reason, price=None, pnl=None):
 
 def save_portfolio_snapshot(value, cash, n_open):
     conn = _conn()
-    conn.execute(
-        """
-        INSERT INTO t2_portfolio_history (date, value, cash, n_open) VALUES (?,?,?,?)
-        ON CONFLICT(date) DO UPDATE SET value=excluded.value, cash=excluded.cash, n_open=excluded.n_open
-    """,
-        (date.today().isoformat(), round(value, 2), round(cash, 2), n_open),
-    )
+    today = date.today().isoformat()
+    if USE_PG:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO t2_portfolio_history (date, value, cash, n_open) VALUES (%s,%s,%s,%s)
+            ON CONFLICT (date) DO UPDATE SET value=EXCLUDED.value, cash=EXCLUDED.cash, n_open=EXCLUDED.n_open
+        """,
+            (today, round(value, 2), round(cash, 2), n_open),
+        )
+        cur.close()
+    else:
+        conn.execute(
+            """
+            INSERT INTO t2_portfolio_history (date, value, cash, n_open) VALUES (?,?,?,?)
+            ON CONFLICT(date) DO UPDATE SET value=excluded.value, cash=excluded.cash, n_open=excluded.n_open
+        """,
+            (today, round(value, 2), round(cash, 2), n_open),
+        )
     conn.commit()
     conn.close()
 
 
 def get_portfolio_history():
     conn = _conn()
-    rows = conn.execute(
-        "SELECT date, value, cash, n_open FROM t2_portfolio_history ORDER BY date ASC"
-    ).fetchall()
+    cur = _ex(
+        conn,
+        "SELECT date, value, cash, n_open FROM t2_portfolio_history ORDER BY date ASC",
+    )
+    rows = _all(cur)
+    if USE_PG:
+        cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    return rows
 
 
 def get_invested_capital():
-    """How much of the Rs50k is currently in open positions."""
     conn = _conn()
-    row = conn.execute(
-        """
-        SELECT COALESCE(SUM(buy_price * quantity), 0) as invested FROM t2_trades WHERE status='OPEN'
-    """
-    ).fetchone()
+    cur = _ex(
+        conn,
+        "SELECT COALESCE(SUM(buy_price * quantity), 0) as invested FROM t2_trades WHERE status='OPEN'",
+    )
+    row = _one(cur)
+    if USE_PG:
+        cur.close()
     conn.close()
-    return row["invested"]
+    return row["invested"] if row else 0
 
 
 def get_realised_pnl():
     conn = _conn()
-    row = conn.execute(
-        "SELECT COALESCE(SUM(pnl),0) as total FROM t2_trades WHERE status='CLOSED'"
-    ).fetchone()
+    cur = _ex(
+        conn,
+        "SELECT COALESCE(SUM(pnl),0) as total FROM t2_trades WHERE status='CLOSED'",
+    )
+    row = _one(cur)
+    if USE_PG:
+        cur.close()
     conn.close()
-    return row["total"]
+    return row["total"] if row else 0
 
 
 # ─── Data cache ───────────────────────────────────────────────────────────────

@@ -10,14 +10,19 @@ from functools import wraps
 import database
 from strategies import track1 as strategy
 from strategies import track2 as t2
+import os
 
 app = Flask(__name__)
 
 # ─── Auth config ──────────────────────────────────────────────────────────────
 # Change these before deploying. Keep them secret.
-app.secret_key = "tradebot-secret-change-this-2026"
-DASHBOARD_USER = "prajwal"
-DASHBOARD_PASS = "groww2026"  # change to something strong
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app.secret_key = os.environ.get("SECRET_KEY", "fallback-secret-key")
+DASHBOARD_USER = os.environ.get("DASHBOARD_USER", "admin")
+DASHBOARD_PASS = os.environ.get("DASHBOARD_PASS", "changeme")
 
 
 def login_required(f):
