@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeBot — Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0a0e1a;
+            color: #e5e7eb;
+            font-family: 'IBM Plex Mono', monospace;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 8px;
+            padding: 40px 36px;
+            width: 360px;
+            max-width: 95vw;
+        }
+
+        .logo {
+            font-size: 18px;
+            font-weight: 600;
+            color: #06b6d4;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            font-size: 11px;
+            color: #6b7280;
+            margin-bottom: 32px;
+            letter-spacing: 0.05em;
+        }
+
+        .label {
+            font-size: 10px;
+            color: #6b7280;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .input {
+            width: 100%;
+            background: #0a0e1a;
+            border: 1px solid #374151;
+            border-radius: 4px;
+            padding: 10px 14px;
+            color: #e5e7eb;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 16px;
+            transition: border-color .15s;
+        }
+
+        .input:focus {
+            border-color: #06b6d4;
+        }
+
+        .btn {
+            width: 100%;
+            background: #06b6d4;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            padding: 11px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            letter-spacing: 0.05em;
+            margin-top: 4px;
+            transition: background .15s;
+        }
+
+        .btn:hover {
+            background: #22d3ee;
+        }
+
+        .error {
+            background: rgba(239, 68, 68, .1);
+            border: 1px solid rgba(239, 68, 68, .3);
+            border-radius: 4px;
+            padding: 10px 14px;
+            font-size: 12px;
+            color: #ef4444;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <div class="logo">TRADEBOT/v5</div>
+        <div class="subtitle">Personal Trading Dashboard</div>
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST">
+            <label class="label">Username</label>
+            <input class="input" type="text" name="username" autocomplete="username" autofocus />
+            <label class="label">Password</label>
+            <input class="input" type="password" name="password" autocomplete="current-password" />
+            <button class="btn" type="submit">LOGIN</button>
+        </form>
+    </div>
+</body>
+
+</html>
