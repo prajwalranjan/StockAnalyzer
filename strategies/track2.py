@@ -43,7 +43,7 @@ import json
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-T2_DB = "track2.db"
+T2_DB = "data/track2.db"
 
 CFG = {
     "starting_capital": 50_000,
@@ -707,4 +707,5 @@ def get_summary():
         "win_rate": round(wins / n * 100, 1) if n > 0 else 0,
         "avg_win": round(stats["avg_win"] or 0, 2),
         "avg_loss": round(stats["avg_loss"] or 0, 2),
+        "max_positions": CFG["max_positions"],
     }

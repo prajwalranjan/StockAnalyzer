@@ -913,7 +913,7 @@
         <div class="card">
           <div class="card-label">Open Positions</div>
           <div class="card-value" id="t2-positions">—</div>
-          <div class="card-sub">Max 5 at a time</div>
+          <div class="card-sub" id="t2-max-sub">Max 5 at a time</div>
         </div>
       </div>
 
@@ -1096,7 +1096,7 @@
 
       document.getElementById('s-winrate').textContent = d.win_rate + '%';
       document.getElementById('s-trades').textContent = `${d.wins}W / ${d.losses}L (${d.total_trades} trades)`;
-      document.getElementById('s-positions').textContent = d.open_positions + '/2';
+      document.getElementById('s-positions').textContent = d.open_positions + '/' + d.max_positions;
 
       // Nifty
       document.getElementById('nifty-price').textContent = d.nifty_price.toLocaleString('en-IN');
@@ -1443,7 +1443,8 @@
       document.getElementById('t2-winrate').textContent = sum.win_rate + '%';
       document.getElementById('t2-trades').textContent =
         `${sum.wins}W / ${sum.losses}L (${sum.total_trades} trades)`;
-      document.getElementById('t2-positions').textContent = sum.open_positions + '/5';
+      document.getElementById('t2-positions').textContent = sum.open_positions + '/' + sum.max_positions;
+      document.getElementById('t2-max-sub').textContent = 'Max ' + sum.max_positions + ' at a time';
 
       // Holdings
       const holdings = await fetch('/api/t2/holdings').then(r => r.json());

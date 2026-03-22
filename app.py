@@ -122,6 +122,7 @@ def api_summary():
             "nifty_change": nifty["change_pct"],
             "todays_pnl": round(todays_pnl, 2),
             "as_of": datetime.now().strftime("%d %b %Y, %I:%M %p"),
+            "max_positions": strategy.CFG["max_positions"],
         }
     )
 
