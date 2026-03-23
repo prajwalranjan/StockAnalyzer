@@ -7,22 +7,21 @@ Then open: http://localhost:5000
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from datetime import datetime
 from functools import wraps
+import os
+from dotenv import load_dotenv
 import database
 from strategies import momentum_breakout as strategy
 from strategies import mean_reversion as t2
-import os
-
-app = Flask(__name__)
-
-# ─── Auth config ──────────────────────────────────────────────────────────────
-# Change these before deploying. Keep them secret.
-from dotenv import load_dotenv
 
 load_dotenv()
 
-app.secret_key = os.environ.get("SECRET_KEY", "fallback-secret-key")
+app = Flask(__name__)
+
+# ─── Auth ─────────────────────────────────────────────────────────────────────
+app.secret_key = os.environ.get("SECRET_KEY", "tradebot-secret-change-this-2026")
 DASHBOARD_USER = os.environ.get("DASHBOARD_USER", "admin")
 DASHBOARD_PASS = os.environ.get("DASHBOARD_PASS", "changeme")
+STARTING_CAPITAL = 20_000
 
 
 def login_required(f):
@@ -54,8 +53,6 @@ def logout():
     return redirect(url_for("login"))
 
 
-STARTING_CAPITAL = 20_000
-
 # ─── Pages ────────────────────────────────────────────────────────────────────
 
 
@@ -68,22 +65,28 @@ def dashboard():
 # ─── API ──────────────────────────────────────────────────────────────────────
 
 
+@app.route("/api/stock_count")
+@login_required
+def api_stock_count():
+    """Returns the current number of stocks in the universe."""
+    return jsonify({"count": len(strategy.STOCKS)})
+
+
 @app.route("/api/summary")
 @login_required
 def api_summary():
     positions = database.get_open_positions()
+    # Exclude paper parallel from summary — only show live positions
+    positions = [p for p in positions if p.get("mode") != "PAPER_PARALLEL"]
     stats = database.get_stats()
     todays_pnl = database.get_todays_pnl()
 
-    # Calculate current open P&L with live prices
     open_pnl = 0
     invested = 0
     for pos in positions:
         price = strategy.get_current_price(pos["symbol"])
-        current_val = price * pos["quantity"]
-        cost = pos["buy_price"] * pos["quantity"]
-        open_pnl += current_val - cost
-        invested += cost
+        open_pnl += price * pos["quantity"] - pos["buy_price"] * pos["quantity"]
+        invested += pos["buy_price"] * pos["quantity"]
 
     closed_pnl = stats["total_pnl"] or 0
     total_pnl = closed_pnl + open_pnl
@@ -118,7 +121,7 @@ def api_summary():
             "total_trades": n,
             "win_rate": win_rate,
             "wins": wins,
-            "losses": (stats["losses"] or 0),
+            "losses": stats["losses"] or 0,
             "bot_paused": bot_paused,
             "regime": regime,
             "regime_label": reg_label,
@@ -128,6 +131,7 @@ def api_summary():
             "todays_pnl": round(todays_pnl, 2),
             "as_of": datetime.now().strftime("%d %b %Y, %I:%M %p"),
             "max_positions": strategy.CFG["max_positions"],
+            "stock_count": len(strategy.STOCKS),
         }
     )
 
@@ -136,6 +140,7 @@ def api_summary():
 @login_required
 def api_holdings():
     positions = database.get_open_positions()
+    positions = [p for p in positions if p.get("mode") != "PAPER_PARALLEL"]
     result = []
     for pos in positions:
         price = strategy.get_current_price(pos["symbol"])
@@ -147,7 +152,6 @@ def api_holdings():
         pnl_pct = (pnl / cost * 100) if cost > 0 else 0
         sl = bp * 0.96
         tp = bp * 1.08
-        # Progress: 0% at SL, 100% at TP
         progress = ((price - sl) / (tp - sl) * 100) if tp != sl else 50
         result.append(
             {
@@ -175,14 +179,12 @@ def api_holdings():
 @app.route("/api/exits")
 @login_required
 def api_exits():
-    """Positions that have hit stop loss / target / time stop today."""
     return jsonify(strategy.check_exits())
 
 
 @app.route("/api/signals")
 @login_required
 def api_signals():
-    """Run a full scan and return today's signals + confirmed ones."""
     result = strategy.scan_for_signals()
     return jsonify(result)
 
@@ -203,16 +205,12 @@ def api_trade_history():
 @login_required
 def api_portfolio_chart():
     history = database.get_portfolio_history()
-    # Seed with starting capital on day 1 if empty
-    if not history:
-        return jsonify([])
-    return jsonify(history)
+    return jsonify(history if history else [])
 
 
 @app.route("/api/add_trade", methods=["POST"])
 @login_required
 def api_add_trade():
-    """Manually record a paper trade buy."""
     data = request.json
     symbol = data.get("symbol", "").upper().strip()
     if not symbol.endswith(".NS"):
@@ -223,7 +221,6 @@ def api_add_trade():
     if not symbol or qty < 1 or price <= 0:
         return jsonify({"error": "Invalid trade data"}), 400
     database.add_trade(symbol, qty, price, mode)
-    # Snapshot portfolio value
     summary = api_summary().get_json()
     database.save_portfolio_value(summary["portfolio_value"])
     return jsonify({"message": f"Trade recorded: {qty} x {symbol} @ Rs{price}"})
@@ -232,7 +229,6 @@ def api_add_trade():
 @app.route("/api/close_trade", methods=["POST"])
 @login_required
 def api_close_trade():
-    """Manually close an open position."""
     data = request.json
     trade_id = int(data.get("trade_id", 0))
     price = float(data.get("price", 0))
@@ -248,7 +244,6 @@ def api_close_trade():
 @app.route("/api/snapshot", methods=["POST"])
 @login_required
 def api_snapshot():
-    """Save today's portfolio value to history (call once daily)."""
     summary = api_summary().get_json()
     database.save_portfolio_value(summary["portfolio_value"])
     return jsonify(
@@ -256,7 +251,7 @@ def api_snapshot():
     )
 
 
-# ─── Track 2 API ──────────────────────────────────────────────────────────────
+# ─── Mean Reversion (Track 2) API ─────────────────────────────────────────────
 
 
 @app.route("/api/t2/summary")
@@ -309,7 +304,6 @@ def api_t2_chart():
 @app.route("/api/t2/run", methods=["POST"])
 @login_required
 def api_t2_run():
-    """Run Track 2 daily automation: check exits, find entries, snapshot."""
     result = t2.run_daily()
     return jsonify(result)
 
@@ -317,9 +311,8 @@ def api_t2_run():
 @app.route("/api/comparison")
 @login_required
 def api_comparison():
-    """Side-by-side Track 1 vs Track 2 performance metrics."""
-    # Track 1
     positions1 = database.get_open_positions()
+    positions1 = [p for p in positions1 if p.get("mode") != "PAPER_PARALLEL"]
     stats1 = database.get_stats()
     open_pnl1 = 0
     for pos in positions1:
@@ -330,17 +323,14 @@ def api_comparison():
     n1 = stats1["n"] or 0
     wr1 = round((stats1["wins"] or 0) / n1 * 100, 1) if n1 > 0 else 0
 
-    # Track 2
     t2_sum = t2.get_summary()
-
-    # Chart data for overlay
     hist1 = database.get_portfolio_history()
     hist2 = t2.get_portfolio_history()
 
     return jsonify(
         {
             "track1": {
-                "label": "Track 1 — Momentum Breakout",
+                "label": "Momentum Breakout",
                 "starting": 20_000,
                 "portfolio_value": round(20_000 + total_pnl1, 2),
                 "total_pnl": round(total_pnl1, 2),
@@ -350,9 +340,10 @@ def api_comparison():
                 "open_positions": len(positions1),
                 "mode": "LIVE (manual orders)",
                 "strategy": "Breakout + Volume + RSI + ADX + Sector filter",
+                "stock_count": len(strategy.STOCKS),
             },
             "track2": {
-                "label": "Track 2 — Mean Reversion",
+                "label": "Mean Reversion",
                 "starting": 50_000,
                 "portfolio_value": t2_sum["portfolio_value"],
                 "total_pnl": t2_sum["total_pnl"],
@@ -372,6 +363,7 @@ def api_comparison():
 if __name__ == "__main__":
     database.init_db()
     t2.init_db()
-    print("\n  Trading Bot Dashboard")
+    print("\n  Trading Bot — Momentum Breakout + Mean Reversion")
+    print(f"  Universe: {len(strategy.STOCKS)} stocks")
     print("  Open: http://localhost:5000\n")
     app.run(debug=True, host="0.0.0.0", port=5000)

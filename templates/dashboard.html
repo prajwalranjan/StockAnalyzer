@@ -1254,7 +1254,8 @@
     }
 
     async function runScan() {
-      toast('Scanning 90 stocks... this takes ~60 seconds', 'success');
+      const stockCount = await fetch('/api/stock_count').then(r => r.json()).then(d => d.count).catch(() => 221);
+      toast(`Scanning ${stockCount} stocks... this takes 3-5 minutes`, 'success');
       document.getElementById('signals-content').innerHTML = '<div class="loading"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span> Scanning market</div>';
       try {
         const result = await fetch('/api/signals').then(r => r.json());
