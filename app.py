@@ -8,8 +8,8 @@ from flask import Flask, render_template, jsonify, request, session, redirect, u
 from datetime import datetime
 from functools import wraps
 import database
-from strategies import track1 as strategy
-from strategies import track2 as t2
+from strategies import momentum_breakout as strategy
+from strategies import mean_reversion as t2
 import os
 
 app = Flask(__name__)
