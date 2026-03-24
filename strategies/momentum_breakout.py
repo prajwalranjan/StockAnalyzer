@@ -16,6 +16,7 @@ import numpy as np
 from datetime import date
 import database
 from prediction import score as scorer
+from ml import collector as ml_collector
 
 # ─── Expanded universe (250 Nifty 500 stocks) ────────────────────────────────
 # Grouped by sector. Stocks priced Rs50-Rs2000 with decent liquidity.
@@ -633,6 +634,7 @@ def check_signal(sym):
         "quality_grade": quality["grade"],
         "quality_detail": quality["modules"],
         "shadow_mode": True,
+        "_score_result": quality,  # kept for ML collector, not shown in UI
     }, None
 
 
@@ -682,7 +684,16 @@ def scan_for_signals():
             signal, _ = check_signal(sym)
             if signal:
                 pending.append(signal)
-                database.save_pending_signal(signal)
+                sig_id = database.save_pending_signal(signal)
+                # Log full feature vector for ML training
+                try:
+                    score_result = signal.get("_score_result")
+                    if score_result:
+                        ml_collector.log_signal_features(
+                            sym, signal, score_result, signal_id=sig_id, mode="LIVE"
+                        )
+                except Exception:
+                    pass  # ML logging is non-critical
 
     # ── Paper parallel run ────────────────────────────────────────
     # Runs automatically alongside the live scan.

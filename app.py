@@ -274,18 +274,75 @@ def api_close_trade():
 
     # Log outcome to sentiment validator
     try:
-        from prediction.sentiment_validator import log_outcome
+        from prediction.sentiment_validator import log_outcome as sv_log
 
         trade = database.get_trade_by_id(trade_id)
         if trade:
             outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "TIME"
-            log_outcome(trade["symbol"], trade["buy_date"], outcome, pnl)
+            sv_log(trade["symbol"], trade["buy_date"], outcome, pnl)
     except Exception:
-        pass  # validator logging is non-critical
+        pass
+
+    # Log outcome to ML collector
+    try:
+        from ml.collector import log_trade_outcome
+
+        trade = database.get_trade_by_id(trade_id)
+        if trade:
+            outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "TIME"
+            pnl_pct = round((price - trade["buy_price"]) / trade["buy_price"] * 100, 2)
+            log_trade_outcome(
+                trade["symbol"],
+                trade["buy_date"],
+                outcome,
+                pnl,
+                pnl_pct,
+                trade.get("days_held", 0),
+                reason,
+            )
+    except Exception:
+        pass
 
     summary = api_summary().get_json()
     database.save_portfolio_value(summary["portfolio_value"])
     return jsonify({"message": f"Trade closed. P&L: Rs{pnl:+.0f}", "pnl": pnl})
+
+
+# ─── ML API endpoints ─────────────────────────────────────────────────────────
+
+
+@app.route("/api/ml/status")
+@login_required
+def api_ml_status():
+    """Returns ML data collection status and sample counts."""
+    from ml.collector import get_sample_count
+
+    return jsonify(get_sample_count())
+
+
+@app.route("/api/ml/report")
+@login_required
+def api_ml_report():
+    """Full ML evaluation report — validation + feature importance."""
+    from ml.evaluator import full_report
+
+    return jsonify(full_report())
+
+
+@app.route("/api/ml/train", methods=["POST"])
+@login_required
+def api_ml_train():
+    """Trigger model training manually."""
+    from ml.trainer import train_and_validate, save_model
+
+    result = train_and_validate()
+    if result.get("deploy") and result.get("model"):
+        save_model(result["model"], result.get("features", []), result)
+        result.pop("model")  # don't serialize model object
+        result["saved"] = True
+    else:
+        result.pop("model", None)
+    return jsonify(result)
 
 
 @app.route("/api/sentiment/report")
