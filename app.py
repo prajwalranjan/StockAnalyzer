@@ -72,13 +72,19 @@ def api_stock_count():
     return jsonify({"count": len(strategy.STOCKS)})
 
 
+@app.route("/api/macro")
+@login_required
+def api_macro():
+    """Returns current macro environment snapshot."""
+    from prediction import macro_sentiment
+
+    return jsonify(macro_sentiment.compute())
+
+
 @app.route("/api/score_breakdown/<symbol>")
 @login_required
 def api_score_breakdown(symbol):
-    """
-    Returns the full quality score breakdown for a given stock.
-    Used by the signal card expand view on the dashboard.
-    """
+    """Returns the full quality score breakdown for a given stock."""
     if not symbol.endswith(".NS"):
         symbol += ".NS"
     from prediction import score as scorer
@@ -88,6 +94,17 @@ def api_score_breakdown(symbol):
     sector_df = strategy._fetch(sector_sym, "3mo")
     result = scorer.compute_score(symbol, df, sector_df)
     return jsonify(result)
+
+
+@app.route("/api/smart_money/<symbol>")
+@login_required
+def api_smart_money(symbol):
+    """Returns smart money breakdown for a stock."""
+    if not symbol.endswith(".NS"):
+        symbol += ".NS"
+    from prediction import smart_money
+
+    return jsonify(smart_money.compute(symbol))
 
 
 @app.route("/api/summary")

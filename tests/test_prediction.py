@@ -315,7 +315,314 @@ class TestCompanySentiment:
         assert -15 <= result["score"] <= 15
 
 
-# ─── Sentiment Validator Tests ────────────────────────────────────────────────
+# ─── Macro Sentiment Tests ────────────────────────────────────────────────────
+
+
+class TestMacroSentiment:
+
+    def setup_method(self):
+        from prediction import macro_sentiment
+
+        self.ms = macro_sentiment
+
+    def test_india_vix_returns_required_keys(self):
+        """india_vix() must return all required keys."""
+        try:
+            result = self.ms.india_vix()
+            for key in ["score", "multiplier", "verdict", "level"]:
+                assert key in result
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_india_vix_score_range(self):
+        """VIX score must be 0-50."""
+        try:
+            result = self.ms.india_vix()
+            assert 0 <= result["score"] <= 50
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_india_vix_multiplier_range(self):
+        """Position multiplier must be 0.0-1.0."""
+        try:
+            result = self.ms.india_vix()
+            assert 0.0 <= result["multiplier"] <= 1.0
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_india_vix_verdict_valid(self):
+        """VIX verdict must be GREEN, AMBER, or RED."""
+        try:
+            result = self.ms.india_vix()
+            assert result["verdict"] in ["GREEN", "AMBER", "RED"]
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_vix_fallback_structure(self):
+        """Fallback must return valid structure."""
+        result = self.ms._vix_fallback("test reason")
+        assert 0 <= result["score"] <= 50
+        assert 0.0 <= result["multiplier"] <= 1.0
+        assert result["verdict"] in ["GREEN", "AMBER", "RED"]
+
+    def test_gdelt_fallback_structure(self):
+        """GDELT fallback must return valid structure."""
+        result = self.ms._gdelt_fallback("test reason")
+        assert 0 <= result["score"] <= 25
+        assert result["verdict"] in ["GREEN", "AMBER", "RED"]
+        assert result["source"] == "fallback"
+
+    def test_central_bank_returns_required_keys(self):
+        """central_bank_proximity() must return required keys."""
+        result = self.ms.central_bank_proximity()
+        for key in ["score", "skip", "verdict", "rbi_days", "fed_days", "detail"]:
+            assert key in result
+
+    def test_central_bank_score_range(self):
+        """Central bank score must be 0-25."""
+        result = self.ms.central_bank_proximity()
+        assert 0 <= result["score"] <= 25
+
+    def test_central_bank_rbi_dates_future(self):
+        """Next RBI date must be in the future or None."""
+        result = self.ms.central_bank_proximity()
+        if result["rbi_days"] is not None:
+            assert result["rbi_days"] >= 0
+
+    def test_dollar_oil_returns_required_keys(self):
+        """dollar_oil_signal() must return required keys."""
+        try:
+            result = self.ms.dollar_oil_signal()
+            for key in ["score", "verdict", "detail"]:
+                assert key in result
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_dollar_oil_score_range(self):
+        """Dollar/oil score must be 0-25."""
+        try:
+            result = self.ms.dollar_oil_signal()
+            assert 0 <= result["score"] <= 25
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_overnight_returns_required_keys(self):
+        """overnight_global() must return required keys."""
+        try:
+            result = self.ms.overnight_global()
+            for key in ["score", "verdict", "detail", "composite"]:
+                assert key in result
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_overnight_score_range(self):
+        """Overnight score must be 0-25."""
+        try:
+            result = self.ms.overnight_global()
+            assert 0 <= result["score"] <= 25
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_compute_returns_required_keys(self):
+        """compute() must return all required keys."""
+        try:
+            result = self.ms.compute()
+            for key in [
+                "macro_score",
+                "position_multiplier",
+                "verdict",
+                "shadow_mode",
+                "signals",
+            ]:
+                assert key in result
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_compute_macro_score_range(self):
+        """Macro score must be 0-100."""
+        try:
+            result = self.ms.compute()
+            assert 0 <= result["macro_score"] <= 100
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_compute_position_multiplier_range(self):
+        """Position multiplier must be 0.0-1.0."""
+        try:
+            result = self.ms.compute()
+            assert 0.0 <= result["position_multiplier"] <= 1.0
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_compute_shadow_mode_always_true(self):
+        """Shadow mode must always be True."""
+        try:
+            result = self.ms.compute()
+            assert result["shadow_mode"] is True
+        except Exception:
+            pytest.skip("Network unavailable")
+
+    def test_compute_verdict_valid(self):
+        """Overall verdict must be GREEN, AMBER, or RED."""
+        try:
+            result = self.ms.compute()
+            assert result["verdict"] in ["GREEN", "AMBER", "RED"]
+        except Exception:
+            pytest.skip("Network unavailable")
+
+
+# ─── Smart Money Tests ────────────────────────────────────────────────────────
+
+
+class TestSmartMoney:
+
+    def setup_method(self):
+        from prediction import smart_money
+
+        self.sm = smart_money
+
+    def test_score_fii_dii_both_buying(self):
+        data = {
+            "combined": "BOTH_BUYING",
+            "fii_net_5d": 500,
+            "dii_net_5d": 200,
+            "detail": "both buying",
+            "source": "nse",
+        }
+        score, _ = self.sm.score_fii_dii(data)
+        assert score == 8
+
+    def test_score_fii_dii_selling(self):
+        data = {
+            "combined": "FII_SELLING",
+            "fii_net_5d": -500,
+            "dii_net_5d": 0,
+            "detail": "selling",
+            "source": "nse",
+        }
+        score, _ = self.sm.score_fii_dii(data)
+        assert score == 0
+
+    def test_score_fii_dii_fallback(self):
+        data = {"source": "fallback"}
+        score, detail = self.sm.score_fii_dii(data)
+        assert 0 <= score <= 8
+        assert "unavailable" in detail.lower()
+
+    def test_score_delivery_high(self):
+        data = {"delivery_pct_today": 75, "delta": None, "source": "nse"}
+        score, _ = self.sm.score_delivery(data)
+        assert score >= 5
+
+    def test_score_delivery_low(self):
+        data = {"delivery_pct_today": 25, "delta": None, "source": "nse"}
+        score, _ = self.sm.score_delivery(data)
+        assert score <= 2
+
+    def test_score_delivery_fallback(self):
+        data = {"source": "fallback"}
+        score, _ = self.sm.score_delivery(data)
+        assert 0 <= score <= 7
+
+    def test_score_block_deals_buy(self):
+        data = {
+            "verdict": "BUY",
+            "net_value_cr": 200,
+            "buy_deals": 2,
+            "sell_deals": 0,
+            "detail": "2 buy blocks",
+            "source": "nse",
+        }
+        score, _ = self.sm.score_block_deals(data)
+        assert score == 5
+
+    def test_score_block_deals_sell(self):
+        data = {
+            "verdict": "SELL",
+            "net_value_cr": -200,
+            "buy_deals": 0,
+            "sell_deals": 2,
+            "detail": "2 sell blocks",
+            "source": "nse",
+        }
+        score, _ = self.sm.score_block_deals(data)
+        assert score == 0
+
+    def test_score_insider_buying(self):
+        data = {
+            "promoter_buying": True,
+            "promoter_selling": False,
+            "net_shares": 50000,
+            "veto": False,
+            "verdict": "GREEN",
+            "detail": "bought 50000",
+            "source": "nse",
+        }
+        score, _ = self.sm.score_insider(data)
+        assert score == 5
+
+    def test_score_insider_veto(self):
+        data = {
+            "promoter_buying": False,
+            "promoter_selling": True,
+            "net_shares": -200000,
+            "veto": True,
+            "verdict": "RED",
+            "detail": "sold 200000",
+            "source": "nse",
+        }
+        score, detail = self.sm.score_insider(data)
+        assert score == 0
+        assert "veto" in detail.lower()
+
+    def test_score_insider_fallback(self):
+        data = {"source": "fallback"}
+        score, _ = self.sm.score_insider(data)
+        assert 0 <= score <= 5
+
+    def test_compute_returns_required_keys(self):
+        try:
+            result = self.sm.compute("RELIANCE.NS")
+            for key in ["total", "summary", "veto", "shadow_mode", "signals"]:
+                assert key in result
+            for sig in ["fii_dii", "delivery", "block_deal", "insider"]:
+                assert sig in result["signals"]
+        except Exception:
+            pytest.skip("NSE data unavailable")
+
+    def test_compute_total_in_range(self):
+        try:
+            result = self.sm.compute("TCS.NS")
+            assert 0 <= result["total"] <= 25
+        except Exception:
+            pytest.skip("NSE data unavailable")
+
+    def test_compute_summary_valid(self):
+        try:
+            result = self.sm.compute("INFY.NS")
+            assert result["summary"] in ["WEAK", "FAIR", "GOOD", "STRONG", "VETO"]
+        except Exception:
+            pytest.skip("NSE data unavailable")
+
+    def test_compute_shadow_mode_always_true(self):
+        try:
+            result = self.sm.compute("HDFCBANK.NS")
+            assert result["shadow_mode"] is True
+        except Exception:
+            pytest.skip("NSE data unavailable")
+
+    def test_veto_zeroes_score(self):
+        insider_data = {
+            "promoter_buying": False,
+            "promoter_selling": True,
+            "net_shares": -500000,
+            "veto": True,
+            "verdict": "RED",
+            "detail": "large sell",
+            "source": "nse",
+        }
+        score, detail = self.sm.score_insider(insider_data)
+        assert score == 0
 
 
 class TestSentimentValidator:

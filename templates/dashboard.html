@@ -790,6 +790,9 @@
       <!-- Exit alerts -->
       <div id="exit-alerts" style="margin-bottom:16px;"></div>
 
+      <!-- Macro environment widget -->
+      <div id="macro-widget" style="margin-bottom:16px;"></div>
+
       <!-- Positions preview -->
       <div class="table-wrap section-gap">
         <div class="table-head">
@@ -1220,6 +1223,9 @@
         ${s.quality_detail.company_sentiment?.verdict ? `&nbsp;·&nbsp;
         Sentiment: <span style="color:${s.quality_detail.company_sentiment.verdict === 'GREEN' ? 'var(--green)' : s.quality_detail.company_sentiment.verdict === 'RED' ? 'var(--red)' : 'var(--yellow)'}">
           ${s.quality_detail.company_sentiment.verdict}</span>` : ''}
+        ${s.quality_detail.smart_money?.summary ? `&nbsp;·&nbsp;
+        Smart $: <span style="color:${['STRONG', 'GOOD'].includes(s.quality_detail.smart_money.summary) ? 'var(--green)' : s.quality_detail.smart_money.summary === 'VETO' ? 'var(--red)' : 'var(--yellow)'}">
+          ${s.quality_detail.smart_money.summary}</span>` : ''}
       </div>` : ''}
     </div>` : '';
 
@@ -1676,14 +1682,89 @@
       if (name === 'compare') loadCompare();
     }
 
+    // ── Macro Environment Widget ──────────────────────────────────────────────────
+
+    async function loadMacroWidget() {
+      try {
+        const m = await fetch('/api/macro').then(r => r.json());
+        const sig = m.signals || {};
+        const vix = sig.india_vix || {};
+        const geo = sig.geopolitical || {};
+        const cb = sig.central_bank || {};
+        const dox = sig.dollar_oil || {};
+        const og = sig.overnight || {};
+
+        const verdictColor = v =>
+          v === 'GREEN' ? 'var(--green)' : v === 'RED' ? 'var(--red)' : 'var(--yellow)';
+
+        const row = (label, value, verdict, detail) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;
+        padding:6px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:12px;">
+        <span style="color:var(--muted);width:130px;flex-shrink:0">${label}</span>
+        <span style="color:${verdictColor(verdict)};font-weight:600;width:80px;text-align:center">${value}</span>
+        <span style="color:var(--muted);font-size:11px;text-align:right;flex:1">${detail}</span>
+      </div>`;
+
+        const multiplierColor = m.position_multiplier >= 1.0 ? 'var(--green)'
+          : m.position_multiplier >= 0.75 ? 'var(--yellow)' : 'var(--red)';
+
+        document.getElementById('macro-widget').innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);
+        border-radius:6px;overflow:hidden;">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);
+          display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-family:var(--mono);font-size:12px;font-weight:600;
+            color:var(--cyan);letter-spacing:.05em;">MACRO ENVIRONMENT</div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">
+              Score: <span style="color:${verdictColor(m.verdict)}">${m.macro_score}/100</span>
+            </span>
+            <span style="font-family:var(--mono);font-size:11px;">
+              Position size: <span style="color:${multiplierColor};font-weight:600">
+                ${Math.round(m.position_multiplier * 100)}%
+              </span>
+              <span style="color:var(--muted);font-size:10px"> (shadow)</span>
+            </span>
+          </div>
+        </div>
+        <div style="padding:4px 16px 8px;">
+          ${row('India VIX',
+          vix.current ? vix.current.toFixed(1) : '—',
+          vix.verdict || 'GREEN',
+          vix.level || '—')}
+          ${row('Geopolitical',
+            geo.avg_tone != null ? geo.avg_tone.toFixed(1) : '—',
+            geo.verdict || 'GREEN',
+            geo.risk_level || '—')}
+          ${row('Central Bank',
+              cb.rbi_days != null ? `RBI ${cb.rbi_days}d` : '—',
+              cb.verdict || 'GREEN',
+              cb.detail || '—')}
+          ${row('Dollar/Oil',
+                dox.dxy_change != null ? `DXY ${dox.dxy_change > 0 ? '+' : ''}${dox.dxy_change}%` : '—',
+                dox.verdict || 'GREEN',
+                dox.detail || '—')}
+          ${row('Overnight Mkts',
+                  og.composite != null ? `${og.composite > 0 ? '+' : ''}${og.composite}%` : '—',
+                  og.verdict || 'GREEN',
+                  og.detail || '—')}
+        </div>
+      </div>`;
+      } catch (e) {
+        document.getElementById('macro-widget').innerHTML = '';
+      }
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────────────
 
     async function init() {
       await loadSummary();
       await loadOverviewPositions();
       await loadExitAlerts();
+      await loadMacroWidget();
       setInterval(loadSummary, 5 * 60 * 1000);
       setInterval(loadExitAlerts, 5 * 60 * 1000);
+      setInterval(loadMacroWidget, 15 * 60 * 1000);  // refresh every 15 min
     }
 
     // Close modals on background click

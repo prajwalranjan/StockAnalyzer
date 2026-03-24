@@ -28,6 +28,8 @@ SHADOW MODE:
 
 from prediction import volume_intelligence
 from prediction import company_sentiment
+from prediction import macro_sentiment
+from prediction import smart_money
 
 
 # ─── Module weights (max points per module) ───────────────────────────────────
@@ -68,19 +70,38 @@ def compute_score(sym, stock_df, sector_df) -> dict:
     modules["company_sentiment"] = cs
     raw_total += max(0, cs.get("score", 0))  # only add positive contribution
 
-    # ── Phase 2B: Macro Sentiment (NOT YET BUILT) ───────────────────
-    modules["macro_sentiment"] = {
-        "score": None,
-        "detail": "not yet implemented",
-        "total": 0,
-    }
+    # ── Phase 2B: Macro Sentiment (ACTIVE — shadow mode) ────────────
+    ms = macro_sentiment.compute()
+    modules["macro_sentiment"] = ms
+    # Macro score contributes 0-15 pts based on environment quality
+    macro_contribution = round(ms["macro_score"] / 100 * MODULE_MAX["macro_sentiment"])
+    raw_total += macro_contribution
 
-    # ── Phase 3: Smart Money (NOT YET BUILT) ────────────────────────
-    modules["smart_money"] = {
-        "score": None,
-        "detail": "not yet implemented",
-        "total": 0,
-    }
+    # ── Phase 3: Smart Money (ACTIVE — shadow mode) ──────────────────
+    sm = smart_money.compute(sym)
+    modules["smart_money"] = sm
+    raw_total += sm["total"]
+
+    # Hard veto from insider selling overrides everything
+    if sm.get("veto"):
+        return {
+            "symbol": sym,
+            "score": 0,
+            "grade": "VETO",
+            "raw_total": 0,
+            "active_max": active_max if "active_max" in dir() else 70,
+            "modules": modules,
+            "shadow_mode": True,
+            "phases_active": [
+                "volume_intelligence",
+                "company_sentiment",
+                "macro_sentiment",
+                "smart_money",
+            ],
+            "position_multiplier": 0,
+            "macro_verdict": "RED",
+            "veto_reason": "large promoter selling detected",
+        }
 
     # ── Phase 4: Options Signal (NOT YET BUILT) ─────────────────────
     modules["options_signal"] = {
@@ -90,7 +111,12 @@ def compute_score(sym, stock_df, sector_df) -> dict:
     }
 
     # ── Score normalisation ────────────────────────────────────────
-    active_max = MODULE_MAX["volume_intelligence"] + MODULE_MAX["company_sentiment"]
+    active_max = (
+        MODULE_MAX["volume_intelligence"]
+        + MODULE_MAX["company_sentiment"]
+        + MODULE_MAX["macro_sentiment"]
+        + MODULE_MAX["smart_money"]
+    )
     if active_max > 0:
         normalised = round((raw_total / active_max) * 100)
     else:
@@ -107,6 +133,9 @@ def compute_score(sym, stock_df, sector_df) -> dict:
     else:
         grade = "WEAK"
 
+    macro_multiplier = ms.get("position_multiplier", 1.0)
+    macro_verdict = ms.get("verdict", "GREEN")
+
     return {
         "symbol": sym,
         "score": normalised,
@@ -115,7 +144,14 @@ def compute_score(sym, stock_df, sector_df) -> dict:
         "active_max": active_max,
         "modules": modules,
         "shadow_mode": True,
-        "phases_active": ["volume_intelligence", "company_sentiment"],
+        "phases_active": [
+            "volume_intelligence",
+            "company_sentiment",
+            "macro_sentiment",
+            "smart_money",
+        ],
+        "position_multiplier": macro_multiplier,
+        "macro_verdict": macro_verdict,
     }
 
 
