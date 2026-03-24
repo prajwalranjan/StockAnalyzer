@@ -254,9 +254,39 @@ def api_close_trade():
     if not trade_id or price <= 0:
         return jsonify({"error": "Invalid data"}), 400
     pnl = database.close_trade(trade_id, price, reason)
+
+    # Log outcome to sentiment validator
+    try:
+        from prediction.sentiment_validator import log_outcome
+
+        trade = database.get_trade_by_id(trade_id)
+        if trade:
+            outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "TIME"
+            log_outcome(trade["symbol"], trade["buy_date"], outcome, pnl)
+    except Exception:
+        pass  # validator logging is non-critical
+
     summary = api_summary().get_json()
     database.save_portfolio_value(summary["portfolio_value"])
     return jsonify({"message": f"Trade closed. P&L: Rs{pnl:+.0f}", "pnl": pnl})
+
+
+@app.route("/api/sentiment/report")
+@login_required
+def api_sentiment_report():
+    """Monthly sentiment validation report."""
+    from prediction.sentiment_validator import monthly_report
+
+    return jsonify(monthly_report())
+
+
+@app.route("/api/sentiment/logs")
+@login_required
+def api_sentiment_logs():
+    """Recent sentiment validation log entries."""
+    from prediction.sentiment_validator import get_recent_logs
+
+    return jsonify(get_recent_logs(20))
 
 
 @app.route("/api/snapshot", methods=["POST"])

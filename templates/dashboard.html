@@ -1217,6 +1217,9 @@
         Vol buildup: ${s.quality_detail.volume_buildup?.score ?? '?'}/10 &nbsp;·&nbsp;
         Consolidation: ${s.quality_detail.consolidation?.score ?? '?'}/10 &nbsp;·&nbsp;
         Rel strength: ${s.quality_detail.relative_strength?.score ?? '?'}/10
+        ${s.quality_detail.company_sentiment?.verdict ? `&nbsp;·&nbsp;
+        Sentiment: <span style="color:${s.quality_detail.company_sentiment.verdict === 'GREEN' ? 'var(--green)' : s.quality_detail.company_sentiment.verdict === 'RED' ? 'var(--red)' : 'var(--yellow)'}">
+          ${s.quality_detail.company_sentiment.verdict}</span>` : ''}
       </div>` : ''}
     </div>` : '';
 

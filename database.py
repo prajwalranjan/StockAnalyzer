@@ -203,6 +203,25 @@ def get_open_positions():
     return _add_days_held(rows)
 
 
+def get_open_positions_by_mode(mode):
+    """
+    Returns open positions filtered by mode.
+    Used to separate live trades from PAPER_PARALLEL trades.
+    mode: 'LIVE', 'PAPER', or 'PAPER_PARALLEL'
+    """
+    conn = _conn()
+    cur = _execute(
+        conn,
+        "SELECT * FROM trades WHERE status='OPEN' AND mode=? ORDER BY buy_date DESC",
+        (mode,),
+    )
+    rows = _fetchall(cur)
+    if USE_PG:
+        cur.close()
+    conn.close()
+    return _add_days_held(rows)
+
+
 def get_closed_trades():
     conn = _conn()
     cur = _execute(
@@ -213,6 +232,16 @@ def get_closed_trades():
         cur.close()
     conn.close()
     return rows
+
+
+def get_trade_by_id(trade_id):
+    conn = _conn()
+    cur = _execute(conn, "SELECT * FROM trades WHERE id=?", (trade_id,))
+    row = _fetchone(cur)
+    if USE_PG:
+        cur.close()
+    conn.close()
+    return row
 
 
 def add_trade(symbol, quantity, buy_price, mode="PAPER"):
