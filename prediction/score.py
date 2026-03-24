@@ -30,6 +30,7 @@ from prediction import volume_intelligence
 from prediction import company_sentiment
 from prediction import macro_sentiment
 from prediction import smart_money
+from prediction import options_signal
 
 
 # ─── Module weights (max points per module) ───────────────────────────────────
@@ -103,12 +104,10 @@ def compute_score(sym, stock_df, sector_df) -> dict:
             "veto_reason": "large promoter selling detected",
         }
 
-    # ── Phase 4: Options Signal (NOT YET BUILT) ─────────────────────
-    modules["options_signal"] = {
-        "score": None,
-        "detail": "not yet implemented",
-        "total": 0,
-    }
+    # ── Phase 4: Options Signal (ACTIVE — shadow mode) ──────────────
+    os_result = options_signal.compute(sym)
+    modules["options_signal"] = os_result
+    raw_total += os_result["total"]
 
     # ── Score normalisation ────────────────────────────────────────
     active_max = (
@@ -116,6 +115,7 @@ def compute_score(sym, stock_df, sector_df) -> dict:
         + MODULE_MAX["company_sentiment"]
         + MODULE_MAX["macro_sentiment"]
         + MODULE_MAX["smart_money"]
+        + MODULE_MAX["options_signal"]
     )
     if active_max > 0:
         normalised = round((raw_total / active_max) * 100)
@@ -149,6 +149,7 @@ def compute_score(sym, stock_df, sector_df) -> dict:
             "company_sentiment",
             "macro_sentiment",
             "smart_money",
+            "options_signal",
         ],
         "position_multiplier": macro_multiplier,
         "macro_verdict": macro_verdict,

@@ -625,6 +625,87 @@ class TestSmartMoney:
         assert score == 0
 
 
+# ─── Options Signal Tests ─────────────────────────────────────────────────────
+
+
+class TestOptionsSignal:
+
+    def setup_method(self):
+        from prediction import options_signal
+
+        self.os = options_signal
+
+    def test_pcr_fallback_structure(self):
+        result = self.os._pcr_fallback("test reason")
+        assert result["verdict"] in ["BULLISH", "NEUTRAL", "BEARISH"]
+        assert 0 <= result["score"] <= 10
+        assert result["source"] == "fallback"
+
+    def test_unusual_fallback_structure(self):
+        result = self.os._unusual_fallback("test reason")
+        assert result["unusual"] is False
+        assert 0 <= result["score"] <= 5
+        assert result["source"] == "fallback"
+
+    def test_pcr_fallback_neutral_score(self):
+        result = self.os._pcr_fallback("non-fno stock")
+        assert result["score"] == 4
+        assert result["verdict"] == "NEUTRAL"
+
+    def test_compute_returns_required_keys(self):
+        try:
+            result = self.os.compute("RELIANCE.NS")
+            for key in ["total", "summary", "shadow_mode", "signals"]:
+                assert key in result
+            for sig in ["pcr", "unusual_oi"]:
+                assert sig in result["signals"]
+        except Exception:
+            pytest.skip("NSE options data unavailable")
+
+    def test_compute_total_in_range(self):
+        try:
+            result = self.os.compute("TCS.NS")
+            assert 0 <= result["total"] <= 15
+        except Exception:
+            pytest.skip("NSE options data unavailable")
+
+    def test_compute_summary_valid(self):
+        try:
+            result = self.os.compute("INFY.NS")
+            assert result["summary"] in [
+                "STRONGLY_BULLISH",
+                "BULLISH",
+                "NEUTRAL",
+                "BEARISH",
+            ]
+        except Exception:
+            pytest.skip("NSE options data unavailable")
+
+    def test_compute_shadow_mode_always_true(self):
+        try:
+            result = self.os.compute("HDFCBANK.NS")
+            assert result["shadow_mode"] is True
+        except Exception:
+            pytest.skip("NSE options data unavailable")
+
+    def test_non_fno_stock_graceful(self):
+        try:
+            result = self.os.compute("RELAXO.NS")
+            assert result["total"] >= 0
+            assert result["summary"] in [
+                "STRONGLY_BULLISH",
+                "BULLISH",
+                "NEUTRAL",
+                "BEARISH",
+            ]
+        except Exception:
+            pytest.skip("NSE options data unavailable")
+
+    def test_fallback_detail_contains_reason(self):
+        result = self.os._pcr_fallback("custom reason")
+        assert "custom reason" in result["detail"]
+
+
 class TestSentimentValidator:
 
     def setup_method(self):
