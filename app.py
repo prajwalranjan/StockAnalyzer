@@ -72,6 +72,24 @@ def api_stock_count():
     return jsonify({"count": len(strategy.STOCKS)})
 
 
+@app.route("/api/score_breakdown/<symbol>")
+@login_required
+def api_score_breakdown(symbol):
+    """
+    Returns the full quality score breakdown for a given stock.
+    Used by the signal card expand view on the dashboard.
+    """
+    if not symbol.endswith(".NS"):
+        symbol += ".NS"
+    from prediction import score as scorer
+
+    df = strategy._fetch(symbol, "3mo")
+    sector_sym = strategy.SECTOR_INDEX.get(symbol, strategy.NIFTY)
+    sector_df = strategy._fetch(sector_sym, "3mo")
+    result = scorer.compute_score(symbol, df, sector_df)
+    return jsonify(result)
+
+
 @app.route("/api/summary")
 @login_required
 def api_summary():

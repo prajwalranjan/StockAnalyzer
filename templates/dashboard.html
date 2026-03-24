@@ -1181,8 +1181,45 @@
 
     // ── Signals ───────────────────────────────────────────────────────────────────
 
+    function qualityColor(grade) {
+      const map = { 'STRONG': 'var(--green)', 'GOOD': 'var(--cyan)', 'FAIR': 'var(--yellow)', 'WEAK': 'var(--muted)' };
+      return map[grade] || 'var(--muted)';
+    }
+
+    function qualityBg(grade) {
+      const map = { 'STRONG': 'rgba(16,185,129,.12)', 'GOOD': 'rgba(6,182,212,.12)', 'FAIR': 'rgba(245,158,11,.12)', 'WEAK': 'rgba(107,114,128,.1)' };
+      return map[grade] || 'rgba(107,114,128,.1)';
+    }
+
     function signalCard(s, type) {
       const isConfirmed = type === 'confirmed';
+      const score = s.quality_score;
+      const grade = s.quality_grade;
+      const hasScore = score !== undefined && score !== null;
+
+      // Quality score badge (shadow mode indicator)
+      const scoreBadge = hasScore ? `
+    <div style="margin-top:10px;padding:8px 10px;border-radius:4px;
+      background:${qualityBg(grade)};border:1px solid ${qualityColor(grade)}33;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.06em;">
+          BREAKOUT QUALITY &nbsp;<span style="color:var(--muted);font-size:9px;">(shadow — not filtering)</span>
+        </span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${qualityColor(grade)};">
+          ${score}/100 ${grade}
+        </span>
+      </div>
+      <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;">
+        <div style="height:100%;width:${score}%;background:${qualityColor(grade)};border-radius:2px;transition:width .3s;"></div>
+      </div>
+      ${s.quality_detail ? `
+      <div style="margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.6;">
+        Vol buildup: ${s.quality_detail.volume_buildup?.score ?? '?'}/10 &nbsp;·&nbsp;
+        Consolidation: ${s.quality_detail.consolidation?.score ?? '?'}/10 &nbsp;·&nbsp;
+        Rel strength: ${s.quality_detail.relative_strength?.score ?? '?'}/10
+      </div>` : ''}
+    </div>` : '';
+
       return `
     <div class="signal-card ${isConfirmed ? 'signal-confirmed' : 'signal-pending'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
@@ -1190,7 +1227,9 @@
           <div class="signal-name">${s.symbol ? s.symbol.replace('.NS', '') : s.display_name || s.symbol}</div>
           <div class="signal-type">${isConfirmed ? '✓ CONFIRMED — BUY NOW' : 'DAY 1 BREAKOUT — AWAIT CONFIRMATION'}</div>
         </div>
-        ${isConfirmed ? `<span class="badge badge-live" style="color:var(--green);border-color:var(--green);">BUY</span>` : `<span class="badge" style="background:rgba(245,158,11,.1);color:var(--yellow);border:1px solid rgba(245,158,11,.3);">WAIT</span>`}
+        ${isConfirmed
+          ? `<span class="badge badge-live" style="color:var(--green);border-color:var(--green);">BUY</span>`
+          : `<span class="badge" style="background:rgba(245,158,11,.1);color:var(--yellow);border:1px solid rgba(245,158,11,.3);">WAIT</span>`}
       </div>
       <div class="signal-metrics">
         <div class="signal-metric">
@@ -1210,7 +1249,8 @@
           <div class="signal-metric-value">${(s.adx || 0).toFixed(1)}</div>
         </div>
       </div>
-      <div class="signal-footer">
+      ${scoreBadge}
+      <div class="signal-footer" style="margin-top:10px;">
         <div style="font-family:var(--mono);font-size:11px;color:var(--muted);">
           SL: Rs${(s.stop_loss || 0).toFixed(0)} &nbsp;|&nbsp; Target: Rs${(s.target || 0).toFixed(0)} &nbsp;|&nbsp; Qty: ${s.quantity || '?'}
         </div>

@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 from datetime import date
 import database
+from prediction import score as scorer
 
 # ─── Expanded universe (250 Nifty 500 stocks) ────────────────────────────────
 # Grouped by sector. Stocks priced Rs50-Rs2000 with decent liquidity.
@@ -610,6 +611,11 @@ def check_signal(sym):
     if qty < 1:
         return None, "price too high"
 
+    # Compute breakout quality score (shadow mode — shown but never blocks)
+    sector_sym = SECTOR_INDEX.get(sym, NIFTY)
+    sector_df = _fetch(sector_sym, "3mo")
+    quality = scorer.compute_score(sym, df, sector_df)
+
     return {
         "symbol": sym,
         "display_name": sym.replace(".NS", ""),
@@ -623,6 +629,10 @@ def check_signal(sym):
         "stop_loss": round(price * (1 - CFG["stop_loss_pct"]), 2),
         "target": round(price * (1 + CFG["profit_target_pct"]), 2),
         "sector": SECTOR_INDEX.get(sym, NIFTY),
+        "quality_score": quality["score"],
+        "quality_grade": quality["grade"],
+        "quality_detail": quality["modules"],
+        "shadow_mode": True,
     }, None
 
 
