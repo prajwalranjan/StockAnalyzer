@@ -12,10 +12,28 @@ from dotenv import load_dotenv
 import database
 from strategies import momentum_breakout as strategy
 from strategies import mean_reversion as t2
+from automation.logger import init_log_table
 
 load_dotenv()
 
 app = Flask(__name__)
+
+# Start scheduler when running under gunicorn (Railway production)
+# Uses a flag to avoid starting twice with Flask debug reloader
+import sys
+
+if "gunicorn" in sys.modules or os.environ.get("START_SCHEDULER") == "true":
+    try:
+        database.init_db()
+        from automation.logger import init_log_table as _init_log
+        from automation.scheduler import start_scheduler
+
+        _init_log()
+        start_scheduler()
+    except Exception as _e:
+        import logging
+
+        logging.getLogger(__name__).error(f"Scheduler startup failed: {_e}")
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 app.secret_key = os.environ.get("SECRET_KEY", "tradebot-secret-change-this-2026")
@@ -345,6 +363,44 @@ def api_ml_train():
     return jsonify(result)
 
 
+# ─── Automation API ───────────────────────────────────────────────────────────
+
+
+@app.route("/api/automation/log")
+@login_required
+def api_automation_log():
+    """Returns automation task logs for last N days."""
+    from automation.logger import get_recent_logs
+
+    days = int(request.args.get("days", 7))
+    return jsonify(get_recent_logs(days))
+
+
+@app.route("/api/automation/status")
+@login_required
+def api_automation_status():
+    """Returns latest status per task + next scheduled run times."""
+    from automation.logger import get_task_summary
+    from automation.scheduler import get_scheduler_status
+
+    return jsonify(
+        {
+            "tasks": get_task_summary(),
+            "scheduler": get_scheduler_status(),
+        }
+    )
+
+
+@app.route("/api/automation/trigger/<task_name>", methods=["POST"])
+@login_required
+def api_automation_trigger(task_name):
+    """Manually trigger a scheduled task immediately."""
+    from automation.scheduler import trigger_task_now
+
+    result = trigger_task_now(task_name)
+    return jsonify(result)
+
+
 @app.route("/api/sentiment/report")
 @login_required
 def api_sentiment_report():
@@ -485,7 +541,12 @@ def api_comparison():
 if __name__ == "__main__":
     database.init_db()
     t2.init_db()
+    init_log_table()
+    from automation.scheduler import start_scheduler
+
+    start_scheduler()
     print("\n  Trading Bot — Momentum Breakout + Mean Reversion")
     print(f"  Universe: {len(strategy.STOCKS)} stocks")
+    print("  Scheduler: Track2@9:00, Scan@9:15, Snapshot@3:30 IST")
     print("  Open: http://localhost:5000\n")
     app.run(debug=True, host="0.0.0.0", port=5000)

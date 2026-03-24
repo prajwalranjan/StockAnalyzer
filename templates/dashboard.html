@@ -708,6 +708,23 @@
       .topbar-right {
         gap: 8px;
       }
+
+      /* Automation tab — stack trigger buttons vertically */
+      .automation-triggers {
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+      }
+
+      .automation-triggers .btn {
+        width: 100%;
+        text-align: center;
+      }
+
+      /* Automation log — hide duration column, truncate result */
+      .automation-hide {
+        display: none;
+      }
     }
 
     @media(max-width: 400px) {
@@ -750,6 +767,8 @@
       <div class="tab" onclick="switchTab('track2')" style="color:var(--cyan);border-bottom:2px solid transparent;">
         TRACK 2</div>
       <div class="tab" onclick="switchTab('compare')">COMPARE</div>
+      <div class="tab" onclick="switchTab('automation')"
+        style="color:var(--yellow);border-bottom:2px solid transparent;">AUTOMATION</div>
     </div>
 
     <!-- ═══ OVERVIEW ═══ -->
@@ -975,6 +994,35 @@
       </div>
     </div>
 
+    <!-- ═══ AUTOMATION ═══ -->
+    <div class="pane" id="pane-automation">
+
+      <!-- Status cards -->
+      <div class="cards" id="automation-status-cards" style="margin-bottom:16px;"></div>
+
+      <!-- Scheduler next runs -->
+      <div class="table-wrap" style="margin-bottom:16px;">
+        <div class="table-head" style="flex-wrap:wrap;gap:8px;">
+          <div class="table-title">SCHEDULED TASKS</div>
+          <div class="automation-triggers" style="display:flex;gap:8px;">
+            <button class="btn btn-sm" onclick="triggerTask('track2_automation')">▶ Track 2</button>
+            <button class="btn btn-sm" onclick="triggerTask('daily_scan')">▶ Scan</button>
+            <button class="btn btn-sm" onclick="triggerTask('portfolio_snapshot')">▶ Snapshot</button>
+          </div>
+        </div>
+        <div id="automation-scheduler"></div>
+      </div>
+
+      <!-- Log table -->
+      <div class="table-wrap">
+        <div class="table-head">
+          <div class="table-title">AUTOMATION LOG — LAST 7 DAYS</div>
+          <button class="btn btn-sm" onclick="loadAutomation()">↺ Refresh</button>
+        </div>
+        <div id="automation-log-table"></div>
+      </div>
+    </div>
+
   </div><!-- /main -->
 
   <!-- Add Trade Modal -->
@@ -1065,9 +1113,9 @@
     }
 
     function switchTab(name) {
+      const allTabs = ['overview', 'positions', 'signals', 'history', 'chart', 'track2', 'compare', 'automation'];
       document.querySelectorAll('.tab').forEach((t, i) => {
-        const names = ['overview', 'positions', 'signals', 'history', 'chart'];
-        t.classList.toggle('active', names[i] === name);
+        t.classList.toggle('active', allTabs[i] === name);
       });
       document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
       document.getElementById('pane-' + name).classList.add('active');
@@ -1075,6 +1123,9 @@
       if (name === 'history') loadHistory();
       if (name === 'chart') loadChart();
       if (name === 'positions') loadPositions();
+      if (name === 'track2') loadTrack2();
+      if (name === 'compare') loadCompare();
+      if (name === 'automation') loadAutomation();
     }
 
     function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -1752,6 +1803,154 @@
       </div>`;
       } catch (e) {
         document.getElementById('macro-widget').innerHTML = '';
+      }
+    }
+
+    // ── Automation ────────────────────────────────────────────────────────────────
+
+    async function loadAutomation() {
+      const [statusRes, logRes] = await Promise.all([
+        fetch('/api/automation/status').then(r => r.json()),
+        fetch('/api/automation/log?days=7').then(r => r.json()),
+      ]);
+
+      renderAutomationStatus(statusRes);
+      renderAutomationLog(logRes);
+    }
+
+    function renderAutomationStatus(data) {
+      const tasks = data.tasks || [];
+      const schedule = data.scheduler || [];
+
+      const taskLabels = {
+        track2_automation: 'Track 2 Automation',
+        daily_scan: 'Daily Scan',
+        portfolio_snapshot: 'Portfolio Snapshot',
+      };
+
+      const statusColor = s =>
+        s === 'SUCCESS' ? 'var(--green)' :
+          s === 'FAILED' ? 'var(--red)' :
+            s === 'RUNNING' ? 'var(--yellow)' : 'var(--muted)';
+
+      const statusIcon = s =>
+        s === 'SUCCESS' ? '✅' :
+          s === 'FAILED' ? '❌' :
+            s === 'RUNNING' ? '⏳' : '—';
+
+      // Status cards
+      document.getElementById('automation-status-cards').innerHTML =
+        tasks.map(t => `
+      <div class="card">
+        <div class="card-label">${taskLabels[t.task_name] || t.task_name}</div>
+        <div class="card-value" style="color:${statusColor(t.status)};font-size:18px;">
+          ${statusIcon(t.status)} ${t.status}
+        </div>
+        <div class="card-sub" style="font-size:10px;">
+          ${t.completed_at ? 'Last: ' + new Date(t.completed_at).toLocaleTimeString('en-IN') : 'Never run'}
+          ${t.duration_ms ? ' · ' + t.duration_ms + 'ms' : ''}
+        </div>
+        ${t.result_summary ? `<div class="card-sub" style="font-size:10px;margin-top:2px;color:var(--muted)">${t.result_summary}</div>` : ''}
+        ${t.error_message ? `<div class="card-sub" style="font-size:10px;margin-top:2px;color:var(--red)">${t.error_message}</div>` : ''}
+      </div>
+    `).join('') || `
+      <div class="card">
+        <div class="card-label">NO RUNS YET</div>
+        <div class="card-value" style="color:var(--muted)">—</div>
+        <div class="card-sub">Scheduler will run tasks automatically</div>
+      </div>`;
+
+      // Next scheduled runs
+      document.getElementById('automation-scheduler').innerHTML =
+        schedule.length ? `
+      <table>
+        <thead><tr><th>TASK</th><th>NEXT RUN (IST)</th></tr></thead>
+        <tbody>${schedule.map(j => `
+          <tr>
+            <td style="font-family:var(--mono)">${j.name}</td>
+            <td style="color:var(--cyan);font-family:var(--mono)">
+              ${j.next_run ? new Date(j.next_run).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` :
+          `<div style="padding:12px;font-family:var(--mono);font-size:12px;color:var(--muted)">
+      Scheduler not running — tasks will fire at 9:00, 9:15 AM and 3:30 PM IST automatically.
+    </div>`;
+    }
+
+    function renderAutomationLog(logs) {
+      if (!logs.length) {
+        document.getElementById('automation-log-table').innerHTML =
+          `<div class="empty"><div class="empty-icon">□</div>
+       <div class="empty-text">No automation runs yet.<br>Tasks will appear here automatically each day.</div></div>`;
+        return;
+      }
+
+      const taskLabels = {
+        track2_automation: 'Track 2',
+        daily_scan: 'Scan',
+        portfolio_snapshot: 'Snapshot',
+      };
+
+      const statusStyle = s =>
+        s === 'SUCCESS' ? 'background:rgba(16,185,129,.1);color:var(--green);border:1px solid rgba(16,185,129,.3)' :
+          s === 'FAILED' ? 'background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.3)' :
+            s === 'RUNNING' ? 'background:rgba(245,158,11,.1);color:var(--yellow);border:1px solid rgba(245,158,11,.3)' :
+              'background:rgba(107,114,128,.1);color:var(--muted);border:1px solid rgba(107,114,128,.3)';
+
+      document.getElementById('automation-log-table').innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>TIME (IST)</th>
+          <th>TASK</th>
+          <th>STATUS</th>
+          <th class="automation-hide">DURATION</th>
+          <th>RESULT</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${logs.map(l => `
+          <tr>
+            <td style="font-family:var(--mono);font-size:11px;color:var(--muted)">
+              ${new Date(l.started_at).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+      })}
+            </td>
+            <td style="font-family:var(--mono)">${taskLabels[l.task_name] || l.task_name}</td>
+            <td><span class="badge" style="${statusStyle(l.status)}">${l.status}</span></td>
+            <td class="automation-hide" style="font-family:var(--mono);color:var(--muted)">
+              ${l.duration_ms ? (l.duration_ms / 1000).toFixed(1) + 's' : '—'}
+            </td>
+            <td style="font-size:11px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              ${l.error_message
+          ? `<span style="color:var(--red)">${l.error_message}</span>`
+          : (l.result_summary || '—')}
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+    }
+
+    async function triggerTask(taskName) {
+      const labels = {
+        track2_automation: 'Track 2 automation',
+        daily_scan: 'daily scan',
+        portfolio_snapshot: 'portfolio snapshot',
+      };
+      toast(`Running ${labels[taskName] || taskName}...`, 'success');
+      try {
+        const r = await fetch(`/api/automation/trigger/${taskName}`, { method: 'POST' }).then(r => r.json());
+        if (r.error) {
+          toast(`Failed: ${r.error}`, 'error');
+        } else {
+          toast(`${labels[taskName]} completed`, 'success');
+          loadAutomation();
+        }
+      } catch (e) {
+        toast(`Error: ${e.message}`, 'error');
       }
     }
 
