@@ -221,9 +221,78 @@ class TestAutomationScheduler:
 
     def test_start_scheduler_skipped_in_pytest(self):
         """Scheduler must not start during pytest runs."""
-        # This test itself runs in pytest — start_scheduler should detect that
-        # and return without actually starting
         self.sc.start_scheduler()
-        # If we're in pytest, _scheduler should still be None or not running
-        # The key is it shouldn't raise an error
-        assert True  # just verify no exception was raised
+        assert True
+
+    def test_is_trading_day_returns_tuple(self):
+        result = self.sc.is_trading_day()
+        assert isinstance(result, tuple) and len(result) == 2
+        assert isinstance(result[0], bool)
+        assert isinstance(result[1], str)
+
+    def test_is_market_open_returns_tuple(self):
+        result = self.sc.is_market_open()
+        assert isinstance(result, tuple) and len(result) == 2
+        assert isinstance(result[0], bool)
+        assert isinstance(result[1], str)
+
+    def test_nse_holiday_detected(self):
+        from unittest.mock import patch
+        from datetime import datetime
+
+        holiday = datetime(2026, 1, 26, 10, 0, 0)
+        with patch("automation.scheduler._ist_now", return_value=holiday):
+            open_, reason = self.sc.is_market_open()
+            assert open_ is False
+            assert "holiday" in reason.lower()
+
+    def test_saturday_detected(self):
+        from unittest.mock import patch
+        from datetime import datetime
+
+        saturday = datetime(2026, 3, 28, 10, 0, 0)
+        with patch("automation.scheduler._ist_now", return_value=saturday):
+            open_, reason = self.sc.is_market_open()
+            assert open_ is False
+            assert "saturday" in reason.lower()
+
+    def test_market_open_during_hours(self):
+        from unittest.mock import patch
+        from datetime import datetime
+
+        friday_10am = datetime(2026, 3, 27, 10, 0, 0)
+        with patch("automation.scheduler._ist_now", return_value=friday_10am):
+            open_, _ = self.sc.is_market_open()
+            assert open_ is True
+
+    def test_pre_market_detected(self):
+        from unittest.mock import patch
+        from datetime import datetime
+
+        friday_8am = datetime(2026, 3, 27, 8, 0, 0)
+        with patch("automation.scheduler._ist_now", return_value=friday_8am):
+            open_, reason = self.sc.is_market_open()
+            assert open_ is False
+            assert "9:15" in reason or "pre" in reason.lower()
+
+    def test_after_market_detected(self):
+        from unittest.mock import patch
+        from datetime import datetime
+
+        friday_4pm = datetime(2026, 3, 27, 16, 0, 0)
+        with patch("automation.scheduler._ist_now", return_value=friday_4pm):
+            open_, reason = self.sc.is_market_open()
+            assert open_ is False
+            assert "3:30" in reason or "closed" in reason.lower()
+
+    def test_skipped_task_logged_as_skipped(self):
+        from automation.logger import get_last_run
+        from unittest.mock import patch
+
+        with patch(
+            "automation.scheduler.is_market_open", return_value=(False, "Sunday")
+        ):
+            self.sc._log_task("daily_scan", self.sc.task_daily_scan)
+        last = get_last_run("daily_scan")
+        assert last is not None
+        assert last["status"] == "SKIPPED"

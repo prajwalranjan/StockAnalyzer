@@ -122,6 +122,11 @@ def log_failure(log_id: int, error_message: str, duration_ms: int = None):
     _update_log(log_id, "FAILED", None, error_message, duration_ms)
 
 
+def log_skip(log_id: int, reason: str, duration_ms: int = None):
+    """Mark a task as skipped (market closed / weekend / holiday)."""
+    _update_log(log_id, "SKIPPED", reason, None, duration_ms)
+
+
 def _update_log(
     log_id: int, status: str, result_summary: str, error_message: str, duration_ms: int
 ):
